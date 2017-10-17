@@ -35,12 +35,16 @@ type IioInterfaceSuite struct {
 	iface interfaces.Interface
 
 	// OS Snap
-	testSlot1 *interfaces.Slot
+	testSlot1       *interfaces.Slot
+	missingPathSlot *interfaces.Slot
+	badPathSlot1    *interfaces.Slot
+	badPathSlot2    *interfaces.Slot
 
 	// Gadget Snap
 	testUDev1             *interfaces.Slot
 	testUDev2             *interfaces.Slot
 	testUDev3             *interfaces.Slot
+	testUDev4             *interfaces.Slot
 	testUDevBadValue1     *interfaces.Slot
 	testUDevBadValue2     *interfaces.Slot
 	testUDevBadValue3     *interfaces.Slot
@@ -49,6 +53,8 @@ type IioInterfaceSuite struct {
 	testUDevBadValue6     *interfaces.Slot
 	testUDevBadValue7     *interfaces.Slot
 	testUDevBadValue8     *interfaces.Slot
+	testUDevBadValue9     *interfaces.Slot
+	testUDevBadValue10    *interfaces.Slot
 	testUDevBadInterface1 *interfaces.Slot
 
 	// Consuming Snap
@@ -68,8 +74,18 @@ slots:
   test-port-1:
     interface: iio
     path: /dev/iio:device0
+  missing-path: iio
+  bad-path-1:
+    interface: iio
+    path: path
+  bad-path-2:
+    interface: iio
+    path: /dev/iio
 `, nil)
 	s.testSlot1 = &interfaces.Slot{SlotInfo: osSnapInfo.Slots["test-port-1"]}
+	s.missingPathSlot = &interfaces.Slot{SlotInfo: osSnapInfo.Slots["missing-path"]}
+	s.badPathSlot1 = &interfaces.Slot{SlotInfo: osSnapInfo.Slots["bad-path-1"]}
+	s.badPathSlot2 = &interfaces.Slot{SlotInfo: osSnapInfo.Slots["bad-path-2"]}
 
 	// Mock for Gadget Snap
 	gadgetSnapInfo := snaptest.MockInfo(c, `
@@ -85,6 +101,10 @@ slots:
   test-udev-3:
     interface: iio
     path: /dev/iio:device10000
+  test-udev-4:
+    interface: iio
+    iio-name: myiio
+    path: /dev/iio-myiio
   test-udev-bad-value-1:
     interface: iio
     path: /dev/iio
@@ -108,12 +128,21 @@ slots:
     path: ""
   test-udev-bad-value-8:
     interface: iio
+  test-udev-bad-value-9:
+    interface: iio
+    iio-name: mybadiio
+    path: /dev/mybadiio
+  test-udev-bad-value-10:
+    interface: iio
+    iio-name: ""
+    path: /dev/iio-nonameiio
   test-udev-bad-interface-1:
     interface: other-interface
 `, nil)
 	s.testUDev1 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-1"]}
 	s.testUDev2 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-2"]}
 	s.testUDev3 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-3"]}
+	s.testUDev4 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-4"]}
 	s.testUDevBadValue1 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-1"]}
 	s.testUDevBadValue2 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-2"]}
 	s.testUDevBadValue3 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-3"]}
@@ -122,6 +151,8 @@ slots:
 	s.testUDevBadValue6 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-6"]}
 	s.testUDevBadValue7 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-7"]}
 	s.testUDevBadValue8 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-8"]}
+	s.testUDevBadValue9 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-9"]}
+	s.testUDevBadValue10 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-value-10"]}
 	s.testUDevBadInterface1 = &interfaces.Slot{SlotInfo: gadgetSnapInfo.Slots["test-udev-bad-interface-1"]}
 
 	// Snap Consumers
@@ -142,6 +173,27 @@ func (s *IioInterfaceSuite) TestName(c *C) {
 	c.Assert(s.iface.Name(), Equals, "iio")
 }
 
+func (s *IioInterfaceSuite) TestSanitizeCoreSnapSlots(c *C) {
+	c.Assert(s.testSlot1.Sanitize(s.iface), IsNil)
+}
+
+func (s *IioInterfaceSuite) TestSanitizeBadCoreSnapSlots(c *C) {
+	// Slots without the "path" attribute are rejected.
+	c.Assert(s.missingPathSlot.Sanitize(s.iface), ErrorMatches, `iio slot must have a path attribute`)
+
+	// Slots with incorrect value of the "path" attribute are rejected.
+	for _, slot := range []*interfaces.Slot{s.badPathSlot1, s.badPathSlot2} {
+		c.Assert(slot.Sanitize(s.iface), ErrorMatches, "iio path attribute must be a valid device node")
+	}
+}
+
+func (s *IioInterfaceSuite) TestSanitizeGadgetSnapSlots(c *C) {
+	c.Assert(s.testUDev1.Sanitize(s.iface), IsNil)
+	c.Assert(s.testUDev2.Sanitize(s.iface), IsNil)
+	c.Assert(s.testUDev3.Sanitize(s.iface), IsNil)
+	c.Assert(s.testUDev4.Sanitize(s.iface), IsNil)
+}
+
 func (s *IioInterfaceSuite) TestSanitizeBadGadgetSnapSlot(c *C) {
 	c.Assert(s.testUDevBadValue1.Sanitize(s.iface), ErrorMatches, "iio path attribute must be a valid device node")
 	c.Assert(s.testUDevBadValue2.Sanitize(s.iface), ErrorMatches, "iio path attribute must be a valid device node")
@@ -151,6 +203,20 @@ func (s *IioInterfaceSuite) TestSanitizeBadGadgetSnapSlot(c *C) {
 	c.Assert(s.testUDevBadValue6.Sanitize(s.iface), ErrorMatches, "iio path attribute must be a valid device node")
 	c.Assert(s.testUDevBadValue7.Sanitize(s.iface), ErrorMatches, "iio slot must have a path attribute")
 	c.Assert(s.testUDevBadValue8.Sanitize(s.iface), ErrorMatches, "iio slot must have a path attribute")
+	c.Assert(s.testUDevBadValue9.Sanitize(s.iface), ErrorMatches, "iio path attribute specifies invalid symlink location")
+	c.Assert(s.testUDevBadValue10.Sanitize(s.iface), ErrorMatches, "iio slot failed to find iio-name attribute or empty string")
+}
+
+func (s *IioInterfaceSuite) TestPermanentSlotUDevSnippets(c *C) {
+	spec := &udev.Specification{}
+	c.Assert(spec.AddPermanentSlot(s.iface, s.testSlot1), IsNil)
+	c.Assert(spec.Snippets(), HasLen, 0)
+
+	expectedSnippet4 := `SUBSYSTEM=="iio", ATTRS{name}=="myiio", SYMLINK+="iio-myiio"`
+	c.Assert(spec.AddPermanentSlot(s.iface, s.testUDev4), IsNil)
+	c.Assert(spec.Snippets(), HasLen, 1)
+	snippet := spec.Snippets()[0]
+	c.Assert(snippet, Equals, expectedSnippet4)
 }
 
 func (s *IioInterfaceSuite) TestConnectedPlugUDevSnippets(c *C) {
@@ -175,7 +241,7 @@ func (s *IioInterfaceSuite) TestConnectedPlugAppArmorSnippets(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(apparmorSpec.SecurityTags(), DeepEquals, []string{"snap.client-snap.app-accessing-1-port"})
 	snippet := apparmorSpec.SnippetForTag("snap.client-snap.app-accessing-1-port")
-	c.Assert(snippet, DeepEquals, expectedSnippet1, Commentf("\nexpected:\n%s\nfound:\n%s", expectedSnippet1, snippet))
+	c.Assert(snippet, DeepEquals, expectedSnippet1)
 }
 
 func (s *IioInterfaceSuite) TestAutoConnect(c *C) {
