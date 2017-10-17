@@ -52,6 +52,7 @@ const iioConnectedPlugAppArmor = `
 `
 
 const iioConnectedPlugUDev = `KERNEL=="%s", TAG+="%s"`
+const iioDeviceUDev = `SUBSYSTEM=="iio", ATTRS{name}=="%s", SYMLINK+="%s"`
 
 // The type for iio interface
 type iioInterface struct{}
@@ -77,6 +78,10 @@ func (iface *iioInterface) String() string {
 // identification
 var iioControlDeviceNodePattern = regexp.MustCompile("^/dev/iio:device[0-9]+$")
 
+// Pattern that is considered valid for the udev symlink to the iio device,
+// path attributes will be compared to this for validity when iio name is specified
+var iioUDevSymlinkPattern = regexp.MustCompile("^/dev/iio-[a-z0-9]+$")
+
 // Check validity of the defined slot
 func (iface *iioInterface) SanitizeSlot(slot *interfaces.Slot) error {
 	if err := sanitizeSlotReservedForOSOrGadget(iface, slot); err != nil {
@@ -91,10 +96,37 @@ func (iface *iioInterface) SanitizeSlot(slot *interfaces.Slot) error {
 
 	path = filepath.Clean(path)
 
-	if !iioControlDeviceNodePattern.MatchString(path) {
-		return fmt.Errorf("%s path attribute must be a valid device node", iface.Name())
+	if iface.hasIioAttrs(slot) {
+		// Must be path attribute where symlink will be placed and iio device name identifier
+		// Check the path attribute is in the allowable pattern
+		if !iioUDevSymlinkPattern.MatchString(path) {
+			return fmt.Errorf("iio path attribute specifies invalid symlink location")
+		}
+
+		iioName, ok := slot.Attrs["iio-name"].(string)
+		if !ok || iioName == "" {
+			return fmt.Errorf("iio slot failed to find iio-name attribute or empty string")
+		}
+
+	} else {
+		if !iioControlDeviceNodePattern.MatchString(path) {
+			return fmt.Errorf("%s path attribute must be a valid device node", iface.Name())
+		}
 	}
 
+	return nil
+}
+
+func (iface *iioInterface) UDevPermanentSlot(spec *udev.Specification, slot *interfaces.Slot) error {
+	iioName, ok := slot.Attrs["iio-name"].(string)
+	if !ok || iioName == "" {
+		return nil
+	}
+	path, ok := slot.Attrs["path"].(string)
+	if !ok || path == "" {
+		return nil
+	}
+	spec.AddSnippet(fmt.Sprintf(iioDeviceUDev, iioName, strings.TrimPrefix(path, "/dev/")))
 	return nil
 }
 
@@ -134,6 +166,13 @@ func (iface *iioInterface) UDevConnectedPlug(spec *udev.Specification, plug *int
 func (iface *iioInterface) AutoConnect(*interfaces.Plug, *interfaces.Slot) bool {
 	// Allow what is allowed in the declarations
 	return true
+}
+
+func (iface *iioInterface) hasIioAttrs(slot *interfaces.Slot) bool {
+	if _, ok := slot.Attrs["iio-name"]; ok {
+		return true
+	}
+	return false
 }
 
 func init() {
